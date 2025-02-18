@@ -4,6 +4,9 @@
 .. image:: https://coveralls.io/repos/github/CDonnerer/xgboost-distribution/badge.svg?branch=main
   :target: https://coveralls.io/github/CDonnerer/xgboost-distribution?branch=main
 
+.. image:: https://img.shields.io/badge/code%20style-black-000000.svg
+  :target: https://github.com/psf/black
+
 .. image:: https://readthedocs.org/projects/xgboost-distribution/badge/?version=latest
   :target: https://xgboost-distribution.readthedocs.io/en/latest/?badge=latest
   :alt: Documentation Status
@@ -31,33 +34,48 @@ Installation
 .. code-block:: console
 
     $ pip install xgboost-distribution
+    $ pip install xgboost-distribution[gpu]  # for GPU support
+
+
+`Dependencies`_:
+
+.. code-block::
+
+    python_requires = >=3.8
+
+    install_requires =
+        scikit-learn
+        xgboost>=2.1.0
 
 
 Usage
 ===========
 
 ``XGBDistribution`` follows the `XGBoost scikit-learn API`_, with an additional keyword
-argument specifying the distribution (see the `documentation`_ for a full list of
-available distributions):
+argument specifying the distribution, which is fit via `Maximum Likelihood Estimation`_:
+
 
 .. code-block:: python
 
-      from sklearn.datasets import load_boston
+      from sklearn.datasets import fetch_california_housing
       from sklearn.model_selection import train_test_split
 
       from xgboost_distribution import XGBDistribution
 
 
-      data = load_boston()
+      data = fetch_california_housing()
       X, y = data.data, data.target
       X_train, X_test, y_train, y_test = train_test_split(X, y)
 
-      model = XGBDistribution(distribution="normal", n_estimators=500)
-      model.fit(
-          X_train, y_train,
-          eval_set=[(X_test, y_test)],
+      model = XGBDistribution(
+          distribution="normal",
+          n_estimators=500,
           early_stopping_rounds=10
       )
+      model.fit(X_train, y_train, eval_set=[(X_test, y_test)])
+
+
+See the `documentation`_ for all available distributions.
 
 After fitting, we can predict the parameters of the distribution:
 
@@ -78,11 +96,11 @@ NGBoost performance comparison
 ``XGBDistribution`` follows the method shown in the `NGBoost`_ library, using natural
 gradients to estimate the parameters of the distribution.
 
-Below, we show a performance comparison of ``XGBDistribution`` with the `NGBoost`_
-``NGBRegressor``, using the Boston Housing dataset, estimating normal distributions.
-We note that while the performance of the two models is essentially identical (measured
-on negative log-likelihood of a normal distribution and the RMSE), ``XGBDistribution``
-is **30x faster** (timed on both fit and predict steps):
+Below, we show a performance comparison of ``XGBDistribution`` and the `NGBoost`_
+``NGBRegressor``, using the California Housing dataset, estimating normal distributions.
+While the performance of the two models is fairly similar (measured on negative
+log-likelihood of a normal distribution and the RMSE), ``XGBDistribution`` is around
+**15x faster** (timed on both fit and predict steps):
 
 .. image:: https://raw.githubusercontent.com/CDonnerer/xgboost-distribution/main/imgs/performance_comparison.png
           :align: center
@@ -90,8 +108,7 @@ is **30x faster** (timed on both fit and predict steps):
           :alt: XGBDistribution vs NGBoost
 
 
-Please see the `experiments page`_ in the documentation for detailed results across
-various datasets.
+Please see the `experiments page`_ for results across various datasets.
 
 
 Full XGBoost features
@@ -132,6 +149,7 @@ information on PyScaffold see https://pyscaffold.org/.
 .. _ngboost: https://github.com/stanfordmlgroup/ngboost
 .. _faster:  https://xgboost-distribution.readthedocs.io/en/latest/experiments.html
 .. _xgboost scikit-learn api: https://xgboost.readthedocs.io/en/latest/python/python_api.html#module-xgboost.sklearn
+.. _dependencies: https://github.com/CDonnerer/xgboost-distribution/blob/feature/update-linting/setup.cfg#L37
 .. _monotonic constraints: https://xgboost.readthedocs.io/en/latest/tutorials/monotonic.html
 .. _scipy.stats.norm: https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.norm.html
 .. _LAPACK gesv: https://www.netlib.org/lapack/lug/node71.html
@@ -141,3 +159,4 @@ information on PyScaffold see https://pyscaffold.org/.
 .. _numpy arrays: https://numpy.org/doc/stable/reference/generated/numpy.array.html
 .. _scipy stats: https://docs.scipy.org/doc/scipy/reference/stats.html
 .. _namedtuple: https://docs.python.org/3/library/collections.html#collections.namedtuple
+.. _maximum likelihood estimation: https://en.wikipedia.org/wiki/Maximum_likelihood_estimation

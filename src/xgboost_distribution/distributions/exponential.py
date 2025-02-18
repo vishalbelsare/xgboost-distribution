@@ -1,10 +1,15 @@
-"""Exponential distribution
-"""
+"""Exponential distribution"""
+
+from collections import namedtuple
+
 import numpy as np
 from scipy.stats import expon
 
+from xgboost_distribution.compat import linalg_solve
 from xgboost_distribution.distributions.base import BaseDistribution
-from xgboost_distribution.distributions.utils import check_is_ge_zero
+from xgboost_distribution.distributions.utils import check_all_ge_zero, safe_exp
+
+Params = namedtuple("Params", ("scale"))
 
 
 class Exponential(BaseDistribution):
@@ -30,37 +35,36 @@ class Exponential(BaseDistribution):
 
     @property
     def params(self):
-        return ("scale",)
+        return Params._fields
 
     def check_target(self, y):
-        check_is_ge_zero(y)
+        check_all_ge_zero(y)
 
     def gradient_and_hessian(self, y, params, natural_gradient=True):
         """Gradient and diagonal hessian"""
 
         (scale,) = self.predict(params)
 
-        grad = np.zeros(shape=(len(y), 1))
+        grad = np.zeros(shape=(len(y), 1), dtype="float32")
         grad[:, 0] = 1 - y / scale
 
         if natural_gradient:
-            fisher_matrix = np.ones(shape=(len(y), 1, 1))
+            fisher_matrix = np.ones(shape=(len(y), 1, 1), dtype="float32")
 
-            grad = np.linalg.solve(fisher_matrix, grad)
-            hess = np.ones(shape=(len(y), 1))  # we set the hessian constant
+            grad = linalg_solve(fisher_matrix, grad)
+            hess = np.ones(shape=(len(y), 1), dtype="float32")  # constant hessian
         else:
             hess = -(grad - 1)
 
         return grad, hess
 
     def loss(self, y, params):
-        scale = self.predict(params)
-        return "Exponential-NLL", -expon.logpdf(y, scale=scale).mean()
+        (scale,) = self.predict(params)
+        return "Exponential-NLL", -expon.logpdf(y, scale=scale)
 
     def predict(self, params):
-        log_scale = params
-        scale = np.exp(log_scale)
-        return self.Predictions(scale=scale)
+        scale = safe_exp(params)
+        return Params(scale=scale)
 
     def starting_params(self, y):
-        return (np.log(np.mean(y)),)
+        return Params(scale=np.log(np.mean(y)))

@@ -1,5 +1,5 @@
-"""Example of count data sampled from negative-binomial distribution
-"""
+"""Example of count data sampled from negative-binomial distribution"""
+
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy import stats
@@ -21,10 +21,10 @@ def predict_distribution(model, X, y):
     """Predict a distribution for a given X, and evaluate over y"""
 
     distribution_func = {
-        "normal": getattr(stats, "norm").pdf,
-        "laplace": getattr(stats, "laplace").pdf,
-        "poisson": getattr(stats, "poisson").pmf,
-        "negative-binomial": getattr(stats, "nbinom").pmf,
+        "normal": stats.norm.pdf,
+        "laplace": stats.laplace.pdf,
+        "poisson": stats.poisson.pmf,
+        "negative-binomial": stats.nbinom.pmf,
     }
     preds = model.predict(X[..., np.newaxis])
 
@@ -63,12 +63,12 @@ def main():
         natural_gradient=True,
         max_depth=3,
         n_estimators=500,
+        early_stopping_rounds=10,
     )
     model.fit(
         X_train,
         y_train,
         eval_set=[(X_test, y_test)],
-        early_stopping_rounds=10,
         verbose=False,
     )
 

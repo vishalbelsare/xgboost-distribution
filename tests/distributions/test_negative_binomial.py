@@ -26,7 +26,7 @@ def negative_binomial():
 def test_gradient_calculation(
     negative_binomial, y, params, natural_gradient, expected_grad
 ):
-    grad, hess = negative_binomial.gradient_and_hessian(
+    grad, _ = negative_binomial.gradient_and_hessian(
         y, params, natural_gradient=natural_gradient
     )
     np.testing.assert_array_equal(grad, expected_grad)
@@ -44,3 +44,27 @@ def test_target_validation(negative_binomial):
 def test_target_validation_raises(negative_binomial, invalid_target):
     with pytest.raises(ValueError):
         negative_binomial.check_target(invalid_target)
+
+
+@pytest.mark.parametrize(
+    "y, params",
+    [
+        (
+            np.array([20], dtype="float32"),
+            np.array([[113.1, 11.2]], dtype="float32"),
+        ),
+        (
+            np.array([20], dtype="float32"),
+            np.array([[13.1, -111.2]], dtype="float32"),
+        ),
+    ],
+)
+def test_overflow_stability(negative_binomial, y, params):
+    """Test stability against large/small values produced by xgboost"""
+    grad, _ = negative_binomial.gradient_and_hessian(y, params)
+    assert isinstance(grad, np.ndarray)
+
+    n, p = negative_binomial.predict(params)
+    assert all(np.isfinite(n))
+    assert n.all()
+    assert p.all()

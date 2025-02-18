@@ -1,11 +1,11 @@
-"""Test suite for XGBDistribution model
-"""
+"""Test suite for XGBDistribution model"""
 
 import os
 import pickle
 
 import pytest
 
+import joblib
 import numpy as np
 from sklearn.exceptions import NotFittedError
 
@@ -17,12 +17,33 @@ def test_XGBDistribution_early_stopping_fit(small_train_test_data):
     """Integration test to ensure end-to-end functionality"""
 
     X_train, X_test, y_train, y_test = small_train_test_data
-    model = XGBDistribution(distribution="normal", max_depth=3, n_estimators=500)
-    model.fit(X_train, y_train, eval_set=[(X_test, y_test)], early_stopping_rounds=10)
-
+    model = XGBDistribution(
+        distribution="normal", max_depth=3, n_estimators=500, early_stopping_rounds=10
+    )
+    model.fit(X_train, y_train, eval_set=[(X_test, y_test)])
     evals_result = model.evals_result()
 
-    assert model.best_iteration == 6
+    assert model.best_iteration == 5
+    assert isinstance(evals_result, dict)
+
+
+def test_XGBDistribution_early_stopping_fit_single_param_distribution(
+    small_train_test_count_data,
+):
+    """Integration test for single param dist (which operate on squeezed arrays)"""
+
+    X_train, X_test, y_train, y_test = small_train_test_count_data
+
+    model = XGBDistribution(
+        distribution="exponential",
+        max_depth=3,
+        n_estimators=500,
+        early_stopping_rounds=10,
+    )
+    model.fit(X_train, y_train, eval_set=[(X_test, y_test)])
+    evals_result = model.evals_result()
+
+    assert model.best_iteration == 10
     assert isinstance(evals_result, dict)
 
 
@@ -30,8 +51,10 @@ def test_XGBDistribution_early_stopping_predict(small_train_test_data):
     """Check that predict with early stopping uses correct ntrees"""
     X_train, X_test, y_train, y_test = small_train_test_data
 
-    model = XGBDistribution(distribution="normal", max_depth=3, n_estimators=500)
-    model.fit(X_train, y_train, eval_set=[(X_test, y_test)], early_stopping_rounds=10)
+    model = XGBDistribution(
+        distribution="normal", max_depth=3, n_estimators=500, early_stopping_rounds=10
+    )
+    model.fit(X_train, y_train, eval_set=[(X_test, y_test)])
 
     mean, var = model.predict(X_test)
     mean_iter, var_iter = model.predict(
@@ -64,6 +87,53 @@ def test_distribution_set_param(small_X_y_data):
     model.fit(X, y)
 
 
+@pytest.mark.parametrize("distribution", ["normal"])
+def test_fit_with_sample_weights(small_X_y_data, distribution):
+    X, y = small_X_y_data
+
+    random_weights = np.random.choice([1, 2], len(X))
+    model = XGBDistribution(distribution=distribution, n_estimators=2)
+    preds_without_weights = model.fit(X, y).predict(X)
+    preds_with_weights = model.fit(X, y, sample_weight=random_weights).predict(X)
+
+    with pytest.raises(AssertionError):
+        np.testing.assert_array_equal(preds_without_weights.loc, preds_with_weights.loc)
+        np.testing.assert_array_equal(
+            preds_without_weights.scale, preds_with_weights.scale
+        )
+
+
+def test_sample_weights_eval_set(small_train_test_data):
+    """Check weights for eval sets change NLL during training"""
+    X_train, X_test, y_train, y_test = small_train_test_data
+
+    weights_train = np.random.choice([1, 2], len(X_train))
+    weights_test = np.random.choice([1, 2], len(X_test))
+
+    model = XGBDistribution(distribution="normal", n_estimators=2)
+    model.fit(
+        X_train, y_train, sample_weight=weights_train, eval_set=[(X_test, y_test)]
+    )
+    evals_result_without_weights = model.evals_result()
+    nll_without_weights = evals_result_without_weights["validation_0"][
+        "NormalDistribution-NLL"
+    ]
+
+    model.fit(
+        X_train,
+        y_train,
+        sample_weight=weights_train,
+        eval_set=[(X_test, y_test)],
+        sample_weight_eval_set=[weights_test],
+    )
+    evals_result_with_weights = model.evals_result()
+    nll_with_weights = evals_result_with_weights["validation_0"][
+        "NormalDistribution-NLL"
+    ]
+
+    assert all(nll_with_weights[i] != nll_without_weights[i] for i in range(2))
+
+
 # -------------------------------------------------------------------------------------
 # Failure modes
 # -------------------------------------------------------------------------------------
@@ -91,27 +161,16 @@ def test_setting_objective_in_init_fails():
         XGBDistribution(objective="binary:logistic")
 
 
-def test_train_with_sample_weights_fails(small_X_y_data):
-    X, y = small_X_y_data
-
-    model = XGBDistribution()
-    with pytest.raises(NotImplementedError):
-        model.fit(X, y, sample_weight=np.ones_like(y))
-
-    with pytest.raises(NotImplementedError):
-        model.fit(X, y, eval_set=[(X, y)], sample_weight_eval_set=np.ones_like(y))
-
-
 # -------------------------------------------------------------------------------------
-#  Model internal tests
+#  Internal tests
 # -------------------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(
     "distribution, expected_margin",
     [
-        ("normal", np.array([0.5, np.log(0.5), 0.5, np.log(0.5)])),
-        ("poisson", np.array([np.log(0.5), np.log(0.5)])),
+        ("normal", np.array([[0.5, np.log(0.5)], [0.5, np.log(0.5)]])),
+        ("poisson", np.array([[np.log(0.5)], [np.log(0.5)]])),
     ],
 )
 def test_get_base_margin(distribution, expected_margin):
@@ -136,7 +195,7 @@ def test_objective_and_evaluation_funcs_callable(distribution):
 
 
 # -------------------------------------------------------------------------------------
-#  Model IO tests
+#  IO tests
 # -------------------------------------------------------------------------------------
 
 
@@ -155,11 +214,11 @@ def assert_model_equivalence(model_a, model_b, X):
 
 @pytest.mark.parametrize(
     "model_format",
-    ["bst", "json"],
+    ["json", "ubj"],
 )
 def test_XGBDistribution_save_and_load_model(small_X_y_data, model_format, tmpdir):
     X, y = small_X_y_data
-    model = XGBDistribution(n_estimators=10)
+    model = XGBDistribution(n_estimators=10, distribution="laplace")
     model.fit(X, y)
 
     model_path = os.path.join(tmpdir, f"model.{model_format}")
@@ -185,3 +244,31 @@ def test_XGBDistribution_pickle_dump_and_load(small_X_y_data, tmpdir):
         saved_model = pickle.load(fd)
 
     assert_model_equivalence(model_a=model, model_b=saved_model, X=X)
+
+
+class XGBDistributionWrapper:
+    def __init__(self, params):
+        self.model1 = XGBDistribution(**params)
+        self.model2 = XGBDistribution(**params)
+
+    def fit(self, X, y):
+        self.model1.fit(X, y)
+        self.model2.fit(X, y)
+        return self
+
+
+def test_XGBDistribution_wrapper_joblib_dump_and_load(small_X_y_data, tmpdir):
+    X, y = small_X_y_data
+    model = XGBDistributionWrapper({"n_estimators": 2})
+    model.fit(X, y)
+
+    model_path = os.path.join(tmpdir, "model.pkl")
+
+    with open(model_path, "wb") as fd:
+        joblib.dump(model, fd)
+
+    with open(model_path, "rb") as fd:
+        saved_model = joblib.load(fd)
+
+    assert_model_equivalence(model_a=model.model1, model_b=saved_model.model1, X=X)
+    assert_model_equivalence(model_a=model.model2, model_b=saved_model.model2, X=X)
